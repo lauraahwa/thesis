@@ -20,7 +20,7 @@ Given any GenX results `capacity.csv` (the file must have `Resource`, `Zone`, `S
   - optional **zones** to aggregate over (e.g., `[2, 5, 7, 9]`); zones are validated against the CSV, and the default is all zones
   - a **scenario name** and **period**, which form the plot title (e.g., "End Capacity Given Baseline Period 1")
 - **`summarize_capacity`** — returns the aggregated capacity table by resource group (same optional zone filtering).
-- **`check_capacity_setting`** — detects whether the run is **greenfield** (all `StartCap = 0`) or **brownfield**. In greenfield cases, `StartCap`/`RetCap` plots are refused as meaningless and `NewCap = EndCap = NetCap`.
+- **`check_capacity_setting`** — detects whether the run is **greenfield** (all `StartCap = 0`) or **brownfield**. In greenfield cases, the user is reminded that `StartCap`/`RetCap` plots are zero by default and `NewCap = EndCap = NetCap`. Only the toy example_systems directory in the GenX repo really has StartCap 0 situations, but, realistically, most test scenarios have existing start capacities.
 
 Resources are classified into Coal, Natural Gas (incl. petroleum/oil), Solar, Wind, Battery, Hydro, Nuclear, and Biomass, and always plotted in that order. Aggregates under 10 MW in magnitude are dropped as solver noise. Example outputs are in `plot_library/`.
 

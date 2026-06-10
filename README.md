@@ -44,7 +44,7 @@ Either way you end up with a virtual environment at `.venv/` containing `mcp`, `
 
 ## Hooking it up to Claude
 
-> **Important:** use **absolute paths** for both the Python interpreter and `server.py`. Clients don't reliably launch MCP servers from the directory you expect, and a relative `server.py` will fail to connect with a cryptic `-32000` error.
+> **Important:** use **absolute paths** for both the Python interpreter and `server.py`.
 
 ### Claude Desktop
 

@@ -1,0 +1,20 @@
+# Large external repos / scenario data — never upload
+GenX.jl/
+genx_server/
+
+# Python virtual environments and caches
+.venv/
+__pycache__/
+*.pyc
+
+# Node
+node_modules/
+
+# Machine-specific MCP/editor configs (see README for setup)
+.mcp.json
+mcp_agent/mcp.json
+.claude/
+.vscode/
+
+# macOS
+.DS_Store

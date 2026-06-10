@@ -13,7 +13,7 @@ The rest of this README covers **capacity-plot-agent**.
 
 ## What it does
 
-Given any GenX results `capacity.csv` (the file must have `Resource`, `Zone`, `StartCap`, `RetCap`, `NewCap`, and `EndCap` columns), the server exposes three tools to Claude:
+Given any GenX results `capacity.csv` (the file must have `Resource`, `Zone`, `StartCap`, `RetCap`, `NewCap`, and `EndCap` columns; which this GenX output file has by default), the server exposes three tools to Claude:
 
 - **`plot_capacity`** — bar chart of one of five capacity metrics (`StartCap`, `RetCap`, `NewCap`, `EndCap`, `NetCap`), aggregated by resource type, saved as a PNG. Claude will ask you for:
   - the **plot type(s)** you want

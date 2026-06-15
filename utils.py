@@ -3,6 +3,7 @@ Shared utility functions for GenX analysis.
 Used by both the Streamlit dashboard (app.py) and Jupyter notebooks.
 """
 
+import os
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -11,7 +12,9 @@ from pathlib import Path
 # Configuration / Constants
 # =============================================================================
 
-DEFAULT_BASE_PATH = Path('/home/yh2673/scratch/GenX.jl/scenarios')
+# Base path for scenario folders. Set GENX_DIR in your environment (or .env);
+# falls back to the current directory so imports don't fail when it's unset.
+DEFAULT_BASE_PATH = Path(os.environ.get("GENX_DIR", ".")) / "scenarios"
 DEFAULT_BASELINE_PATH = DEFAULT_BASE_PATH / 'PJM_Baseline_Example_copy'
 
 # PJM zones (excluding neighboring regions)

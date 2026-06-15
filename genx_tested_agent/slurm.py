@@ -3,9 +3,6 @@ import subprocess
 import textwrap
 from typing import Optional
 
-import sys
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-
 
 def _require(name: str) -> str:
     """Read a required environment variable or fail with a clear message."""
@@ -34,13 +31,15 @@ SLURM_DEFAULTS = {
 # Cluster module / build settings (all optional, env-driven).
 JULIA_MODULE = os.environ.get("JULIA_MODULE")        # e.g. "julia/1.10.5"
 GUROBI_MODULE = os.environ.get("GUROBI_MODULE")      # e.g. "gurobi/9.0.1"
-JULIA_CPU_TARGET = os.environ.get("JULIA_CPU_TARGET")  # optional multi-arch target
+JULIA_CPU_TARGET = os.environ.get("JULIA_CPU_TARGET")  # e.g. "generic;skylake=avx512;..."
+
 
 def _is_valid_case(path: str) -> bool:
     return (
         os.path.isfile(os.path.join(path, "Run.jl")) and
         os.path.isfile(os.path.join(path, "settings", "genx_settings.yml"))
     )
+
 
 def find_case(case_dir: str) -> str:
     """

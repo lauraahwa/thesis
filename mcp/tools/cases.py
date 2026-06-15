@@ -5,21 +5,21 @@ from typing import Optional
 
 import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from config import DEFAULT_SCENARIOS_DIRS
+from tools.slurm import GENX_DIR
 
 
 def list_cases(scenarios_dir: Optional[str] = None) -> list[dict]:
     """
-    Scan one or more scenario directories and return metadata for every valid
-    GenX case found.
+    Recursively scan a directory tree and return metadata for every valid
+    GenX case found, at any depth.
 
     A valid case must contain:
       - Run.jl
       - settings/genx_settings.yml
 
     Args:
-        scenarios_dir: Path to a specific directory to scan. If omitted,
-                       scans all DEFAULT_SCENARIOS_DIRS.
+        scenarios_dir: Root directory to scan. If omitted, scans
+                       GENX_DIR/scenarios.
 
     Returns:
         List of dicts, one per case:
@@ -30,19 +30,17 @@ def list_cases(scenarios_dir: Optional[str] = None) -> list[dict]:
           rep_periods   - MaxPeriods from TDR settings (None if not found)
           num_stages    - NumStages from multi_stage_settings (None if not found)
     """
-    dirs_to_scan = [scenarios_dir] if scenarios_dir else DEFAULT_SCENARIOS_DIRS
+    root = scenarios_dir or os.path.join(GENX_DIR, "scenarios")
 
     cases = []
-    for scan_dir in dirs_to_scan:
-        if not os.path.isdir(scan_dir):
+    if not os.path.isdir(root):
+        return cases
+    for dirpath, dirnames, _ in os.walk(root):
+        if _is_valid_case(dirpath):
+            cases.append(_describe_case(os.path.basename(dirpath), dirpath))
+            dirnames[:] = []  # prune: don't descend into a case's own subfolders
             continue
-        for name in sorted(os.listdir(scan_dir)):
-            path = os.path.join(scan_dir, name)
-            if not os.path.isdir(path):
-                continue
-            if not _is_valid_case(path):
-                continue
-            cases.append(_describe_case(name, path))
+        dirnames.sort()
 
     return cases
 
@@ -77,8 +75,6 @@ def _describe_case(name: str, path: str) -> dict:
         "num_stages":    num_stages,
     }
 
-# multi_stage_settings.yml (NumStages) lives here
-# calls now so infer_slurm_resources() can use it later
 def _load_yaml(path: str) -> dict:
     try:
         with open(path) as f:

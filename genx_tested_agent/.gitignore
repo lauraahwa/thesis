@@ -1,0 +1,15 @@
+# Local config — never commit
+.env
+.mcp.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Runtime output
+run_logs/
+plots/
+*.png

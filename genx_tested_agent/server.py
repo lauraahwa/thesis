@@ -1,6 +1,21 @@
-# Import analytics tools
+# genx-tested-agent MCP server.
+#
+# Loads configuration from a .env file (see .env.example) before importing
+# anything that reads environment variables, so personal/cluster settings are
+# never hardcoded.
 
-from plot_capacity import(
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env sitting next to this file (no-op if it doesn't exist).
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
+from typing import Optional
+
+from mcp.server.fastmcp import FastMCP
+
+# Analytics tools
+from plot_capacity import (
     resource_colors,
     column_titles,
     classify_resource,
@@ -8,28 +23,23 @@ from plot_capacity import(
     filter_by_zones,
     check_existing,
     aggregate_capacity_by_resource,
-    plot_capacity_bar
+    plot_capacity_bar,
 )
 
-from pathlib import Path
+# SLURM submission (imports os.environ at module load, hence after load_dotenv).
+from slurm import preview_case as _preview_case, submit_case as _submit_case
 
-from mcp.server.fastmcp import FastMCP
-
-mcp = FastMCP("capacity-plot-agent")
+mcp = FastMCP("genx-tested-agent")
 
 
-''' Checks if the capacity CSV is a brownfield/greenfield situation,
-then aggregates capacity by resource group for plotting.
-'''
 @mcp.tool()
 def check_capacity_setting(csv_path: str) -> dict:
-    # Loads in default GenX capacity CSV and groups by resource type
+    """Detect whether a GenX capacity.csv is a brownfield or greenfield case."""
     df = load_capacity_csv(csv_path)
-    # check_existing function = whether StartCap > 0 (brownfield) or all StartCap = 0 (greenfield)
+    # check_existing: whether StartCap > 0 (brownfield) or all StartCap = 0 (greenfield)
     return check_existing(df)
 
-''' Returns aggregated StartCap, RetCap, NewCap, EndCap, and NetCap by resource
-group for plotting. '''
+
 @mcp.tool()
 def summarize_capacity(csv_path: str, zones: list[int] | None = None) -> dict:
     """
@@ -48,8 +58,7 @@ def summarize_capacity(csv_path: str, zones: list[int] | None = None) -> dict:
             return {"success": False, "message": str(e)}
     return aggregate_capacity_by_resource(df)
 
-''' Plot capacity based on what the user wants.
-Making sure user states what output directory save the plotted PNGs. '''
+
 @mcp.tool()
 def plot_capacity(
     csv_path: str,
@@ -72,7 +81,6 @@ def plot_capacity(
         csv_path: Path to the capacity.csv file
         output_dir: Directory to save the plot PNG files
         plot_type: Type of plot - one of: "StartCap", "RetCap", "NewCap", "EndCap", "NetCap"
-        ^ user can choose to visualize one of these five
         scenario_name: Scenario name for the plot title (ask the user)
         period: Period for the plot title, e.g. "1" (ask the user)
         zones: Optional list of zone numbers (e.g., [2, 5, 7, 9]) to filter to
@@ -81,7 +89,6 @@ def plot_capacity(
     Returns:
         dict with success status, message, and file path
     """
-    # Valid plot types
     valid_types = ["StartCap", "RetCap", "NewCap", "EndCap", "NetCap"]
 
     if plot_type not in valid_types:
@@ -91,7 +98,6 @@ def plot_capacity(
             "file_path": None
         }
 
-    # Load data, filtering to the requested zones if given
     df = load_capacity_csv(csv_path)
     if zones:
         try:
@@ -104,11 +110,9 @@ def plot_capacity(
             }
     aggregated = aggregate_capacity_by_resource(df)
 
-    # Check if it's brownfield/greenfield
     setting_info = check_existing(df)
     is_brownfield = setting_info["is_brownfield"]
 
-    # Handle greenfield cases
     if not is_brownfield:
         if plot_type in ["StartCap", "RetCap"]:
             return {
@@ -117,7 +121,6 @@ def plot_capacity(
                 "setting": "greenfield"
             }
         elif plot_type == "NetCap":
-            # In greenfield, NetCap = EndCap
             plot_type = "EndCap"
             message_suffix = " Note that NewCap = EndCap = NetCap in greenfield case!"
         else:
@@ -125,13 +128,9 @@ def plot_capacity(
     else:
         message_suffix = ""
 
-    # Create output file path
     output_path = Path(output_dir) / f"{plot_type}.png"
-
-    # Title combines plot type, scenario name, and period (zones are not shown)
     title = f"{column_titles[plot_type]} {scenario_name} Period {period}"
 
-    # Generate plot
     result = plot_capacity_bar(
         df=aggregated,
         capacity_column=plot_type,
@@ -145,6 +144,59 @@ def plot_capacity(
 
     return result
 
-# Entry point for running the server
+
+@mcp.tool()
+def preview_genx_case(
+    case_dir: str,
+    time_hours: int,
+    mem_gb: int,
+    cpus: Optional[int] = None,
+    case_name: Optional[str] = None,
+) -> dict:
+    """
+    Generate the SLURM submission script for a GenX case without submitting it.
+
+    Resolves the case from the given directory path and returns the script text
+    along with the resource values used. Walltime and memory must be supplied by
+    the caller; if the user has not stated them, ask before calling this tool.
+
+    Args:
+        case_dir:   Path to the case folder. May be absolute, relative to
+                    GENX_DIR, or relative to the working directory.
+        time_hours: Walltime in hours (required).
+        mem_gb:     Memory in GB (required).
+        cpus:       Number of CPUs. Defaults to SLURM_CPUS_DEFAULT.
+        case_name:  Optional SLURM job name / label. Defaults to the directory basename.
+    """
+    return _preview_case(case_dir, time_hours, mem_gb, cpus, case_name)
+
+
+@mcp.tool()
+def submit_genx_case(
+    case_dir: str,
+    time_hours: int,
+    mem_gb: int,
+    cpus: Optional[int] = None,
+    case_name: Optional[str] = None,
+) -> dict:
+    """
+    Submit a GenX case to SLURM via sbatch.
+
+    Resolves the case from the given directory path and submits the job. Returns
+    the SLURM job ID and the resource values used. Walltime and memory must be
+    supplied by the caller; if the user has not stated them, ask before calling
+    this tool.
+
+    Args:
+        case_dir:   Path to the case folder. May be absolute, relative to
+                    GENX_DIR, or relative to the working directory.
+        time_hours: Walltime in hours (required).
+        mem_gb:     Memory in GB (required).
+        cpus:       Number of CPUs. Defaults to SLURM_CPUS_DEFAULT.
+        case_name:  Optional SLURM job name / label. Defaults to the directory basename.
+    """
+    return _submit_case(case_dir, time_hours, mem_gb, cpus, case_name)
+
+
 if __name__ == "__main__":
     mcp.run()

@@ -5,12 +5,17 @@ Exposes GenX cluster operations as MCP tools. Run with:
     python server.py
 """
 
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load .env sitting next to this file before importing modules that read env vars.
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
 from mcp.server.fastmcp import FastMCP
 from typing import Optional
 
 from tools.cases import list_cases as _list_cases
-from tools.slurm import preview_case as _preview_case, submit_case as _submit_case
-from tools.analytics import npv_for_case, capacity_cost_for_case, capacity_mix_for_case, average_metric_across_scenarios, capacity_mix_plot_for_case
+from tools.analytics import npv_for_case, capacity_cost_for_case, capacity_mix_for_case, average_metric_across_scenarios, capacity_mix_plot_for_case, average_capacity_mix_plot
 
 mcp = FastMCP("genx")
 
@@ -20,56 +25,15 @@ def list_cases(scenarios_dir: Optional[str] = None) -> list[dict]:
     """
     List all valid GenX cases and their status.
 
-    Scans the default scenarios directories unless a specific path is given.
-    Returns one entry per case with: name, path, has_results, last_modified,
-    multi_stage, rep_periods (representative weeks), and num_stages.
+    Recursively scans a directory tree (default: GENX_DIR/scenarios) and finds
+    cases at any depth. Returns one entry per case with: name, path, has_results,
+    last_modified, rep_periods (representative weeks), and num_stages.
 
     Args:
-        scenarios_dir: Optional path to a specific directory to scan.
+        scenarios_dir: Optional root directory to scan. Defaults to
+                       GENX_DIR/scenarios.
     """
     return _list_cases(scenarios_dir)
-
-
-@mcp.tool()
-def preview_genx_case(
-    case_name: str,
-    time_hours: Optional[int] = None,
-    mem_gb: Optional[int] = None,
-) -> dict:
-    """
-    Generate the SLURM submission script for a GenX case without submitting it.
-
-    Looks up the case by name in the default scenario directories, infers
-    appropriate walltime and memory from the case size (rep_periods × num_stages),
-    and returns the script text along with the inferred and final resource values.
-
-    Args:
-        case_name:  Name of the case folder (e.g. "PJM_Baseline_Example_copy").
-        time_hours: Override the inferred walltime in hours.
-        mem_gb:     Override the inferred memory in GB.
-    """
-    return _preview_case(case_name, time_hours, mem_gb)
-
-
-@mcp.tool()
-def submit_genx_case(
-    case_name: str,
-    time_hours: Optional[int] = None,
-    mem_gb: Optional[int] = None,
-) -> dict:
-    """
-    Submit a GenX case to SLURM via sbatch.
-
-    Looks up the case by name in the default scenario directories, infers
-    walltime and memory from the case size, and submits the job. Returns
-    the SLURM job ID and the resource values used.
-
-    Args:
-        case_name:  Name of the case folder (e.g. "PJM_Baseline_Example_copy").
-        time_hours: Override the inferred walltime in hours.
-        mem_gb:     Override the inferred memory in GB.
-    """
-    return _submit_case(case_name, time_hours, mem_gb)
 
 
 @mcp.tool()
@@ -155,6 +119,24 @@ def plot_capacity_mix(case_name: str) -> dict:
         case_name: Name of the case folder (e.g. "PJM_DC_Island_1000MW_z10").
     """
     return capacity_mix_plot_for_case(case_name)
+
+
+@mcp.tool()
+def plot_average_capacity_mix(case_pattern: str, label: str = None) -> dict:
+    """
+    Plot the average net capacity change vs baseline across all PJM zones
+    for a family of scenarios identified by a naming pattern.
+
+    For each PJM zone z, looks up the case matching the pattern (with {z}
+    replaced by the zone number), computes net new capacity minus baseline,
+    then averages across all zones before plotting.
+
+    Args:
+        case_pattern: Case name pattern with {z} placeholder,
+                      e.g. "PJM_UnifInflation_z{z}" or "PJM_DC_Island_1000MW_z{z}".
+        label:        Plot title label. Defaults to case_pattern.
+    """
+    return average_capacity_mix_plot(case_pattern, label)
 
 
 if __name__ == "__main__":

@@ -13,8 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from config import GENX_DIR
-from tools.slurm import find_case
+from tools.slurm import GENX_DIR, find_case
 
 sys.path.insert(0, GENX_DIR)
 from utils import PJM_ZONES, CAPRES_DICT, get_capacity_mix as _get_capacity_mix
@@ -334,6 +333,85 @@ def plot_capacity_mix_vs_baseline(scenario_path: str) -> dict:
         "baseline":  os.path.basename(BASELINE_PATH),
         "plot_path": out_path,
         "diff_mw":   {k: round(float(v), 1) for k, v in diff.items()},
+    }
+
+
+def average_capacity_mix_plot(case_pattern: str, label: str = None) -> dict:
+    """
+    Compute average net capacity change (vs baseline) across all PJM zones.
+
+    case_pattern: string with {z} placeholder, e.g. "PJM_UnifInflation_z{z}"
+    label:        display title for the plot (defaults to case_pattern)
+    """
+    def net_capacity_change(path):
+        m1 = _get_capacity_mix(path, 1, pjm_only=True)
+        m2 = _get_capacity_mix(path, 2, pjm_only=True)
+        new = m1["new_by_category"].add(m2["new_by_category"], fill_value=0)
+        ret = m1["retired_by_category"].add(m2["retired_by_category"], fill_value=0)
+        return new.subtract(ret, fill_value=0)
+
+    baseline_net = net_capacity_change(BASELINE_PATH)
+
+    diffs = []
+    skipped = []
+
+    for z in PJM_ZONES:
+        case_name = case_pattern.format(z=z)
+        try:
+            path = find_case(case_name)
+            diff = net_capacity_change(path).subtract(baseline_net, fill_value=0)
+            diffs.append(diff)
+        except Exception as e:
+            skipped.append(f"{case_name}: {e}")
+
+    if not diffs:
+        return {"error": "No cases found", "skipped": skipped}
+
+    avg_diff = pd.concat(diffs, axis=1).fillna(0).mean(axis=1)
+
+    ordered = [c for c in CATEGORY_ORDER if c in avg_diff.index and abs(avg_diff[c]) > 1]
+    avg_diff = avg_diff[ordered]
+
+    title_label = label or case_pattern
+    colors = [CATEGORY_COLORS.get(c, "#999999") for c in avg_diff.index]
+
+    fig, ax = plt.subplots(figsize=(max(6, len(avg_diff) * 1.2), 5))
+    bars = ax.bar(avg_diff.index, avg_diff.values, color=colors, width=0.6, edgecolor="white")
+
+    ax.axhline(0, color="black", linewidth=0.8)
+    ax.set_ylabel("Δ Capacity (MW)")
+    ax.set_title(
+        f"{title_label}  (avg across {len(diffs)} zones)\nRelative to {os.path.basename(BASELINE_PATH)}",
+        fontweight="bold"
+    )
+
+    for bar, val in zip(bars, avg_diff.values):
+        offset = 8 if val >= 0 else -16
+        ax.text(
+            bar.get_x() + bar.get_width() / 2,
+            val + offset,
+            f"{val:+.0f}",
+            ha="center", va="bottom" if val >= 0 else "top",
+            fontsize=9
+        )
+
+    plt.xticks(rotation=15, ha="right")
+    plt.tight_layout()
+
+    plots_dir = os.path.join(GENX_DIR, "mcp", "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+    safe = title_label.replace("{z}", "all_zones").replace("/", "_").replace(" ", "_")
+    out_path = os.path.join(plots_dir, f"{safe}_avg_capacity_mix.png")
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+    return {
+        "case_pattern": case_pattern,
+        "n_zones":      len(diffs),
+        "skipped":      skipped,
+        "baseline":     os.path.basename(BASELINE_PATH),
+        "plot_path":    out_path,
+        "avg_diff_mw":  {k: round(float(v), 1) for k, v in avg_diff.items()},
     }
 
 

@@ -1,105 +1,128 @@
-# GenX MCP Tooling
+# genx-tested-agent
 
-Tools for working with [GenX](https://github.com/GenXProject/GenX.jl) capacity expansion model outputs through Claude, via the [Model Context Protocol (MCP)](https://modelcontextprotocol.io).
+An MCP server for working with [GenX](https://github.com/GenXProject/GenX.jl)
+capacity-expansion runs through Claude, via the
+[Model Context Protocol (MCP)](https://modelcontextprotocol.io).
 
-This repo contains two MCP servers:
+A single server (`genx-tested-agent`) exposes two groups of tools:
 
-| Directory | Server | Purpose |
-|---|---|---|
-| `mcp_agent/` | **capacity-plot-agent** | Plot and summarize GenX `capacity.csv` results |
-| `mcp/` | cluster tooling | Submit/manage GenX runs (e.g., Slurm scripts) |
+- **Cluster** — submit GenX cases to SLURM (and dry-run the generated script) using
+  natural-language commands.
+- **Results** — plot and summarize GenX `capacity.csv` output.
 
-The rest of this README covers **capacity-plot-agent**.
+> *"Submit `scenarios/PJM_Baseline_Example` with 12h, 3 cores, 128GB"*
 
-## What it does
+## Tools
 
-Given any GenX results `capacity.csv` (the file must have `Resource`, `Zone`, `StartCap`, `RetCap`, `NewCap`, and `EndCap` columns; which this GenX output file has by default), the server exposes three tools to Claude:
+| Tool | Purpose |
+|---|---|
+| `submit_genx_case` | Build a SLURM batch script for a case and submit it with `sbatch`. Returns the job ID. |
+| `preview_genx_case` | Return the generated SLURM script **without** submitting (dry run). |
+| `summarize_capacity` | Aggregate `capacity.csv` (StartCap/RetCap/NewCap/EndCap/NetCap) by resource type, optional zone filter. |
+| `check_capacity_setting` | Detect whether a run is **greenfield** (all `StartCap = 0`) or **brownfield**. |
+| `plot_capacity` | Bar chart of one capacity metric, aggregated by resource type, saved as a PNG. |
 
-- **`plot_capacity`** — bar chart of one of five capacity metrics (`StartCap`, `RetCap`, `NewCap`, `EndCap`, `NetCap`), aggregated by resource type, saved as a PNG. Claude will ask you for:
-  - the **plot type(s)** you want
-  - optional **zones** to aggregate over (e.g., `[2, 5, 7, 9]`); zones are validated against the CSV, and the default is all zones
-  - a **scenario name** and **period**, which form the plot title (e.g., "End Capacity Given Baseline Period 1")
-- **`summarize_capacity`** — returns the aggregated capacity table by resource group (same optional zone filtering).
-- **`check_capacity_setting`** — detects whether the run is **greenfield** (all `StartCap = 0`) or **brownfield**. In greenfield cases, the user is reminded that `StartCap`/`RetCap` plots are zero by default and `NewCap = EndCap = NetCap`. Only the toy example_systems directory in the GenX repo really has StartCap 0 situations, but, realistically, most test scenarios have existing start capacities.
+Resources are classified into Coal, Natural Gas (incl. petroleum/oil), Solar,
+Wind, Battery, Hydro, Nuclear, and Biomass, and always plotted in that order.
+Aggregates under 10 MW in magnitude are dropped as solver noise.
 
-Resources are classified into Coal, Natural Gas (incl. petroleum/oil), Solar, Wind, Battery, Hydro, Nuclear, and Biomass, and always plotted in that order. Aggregates under 10 MW in magnitude are dropped as solver noise. Example outputs are in `plot_library/`.
+A directory is treated as a valid GenX case when it contains both `Run.jl` and
+`settings/genx_settings.yml`. `case_dir` may be absolute, relative to `GENX_DIR`,
+or relative to your current working directory.
 
 ## Setup
 
-Requires Python ≥ 3.10.
+Requires Python ≥ 3.10 and (for submission) a SLURM cluster with `sbatch` on
+`PATH` plus a local GenX.jl checkout.
 
 ```bash
-git clone https://github.com/lauraahwa/thesis.git
-cd thesis
+git clone <this-repo> genx-tested-agent
+cd genx-tested-agent
 
-# with uv (recommended)
-uv sync
+# install dependencies
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
 
-# or with plain pip
-python3 -m venv .venv
-.venv/bin/pip install "mcp[cli]>=1.0.0" "pandas>=2.0.0" "matplotlib>=3.7.0"
+# configure your environment
+cp .env.example .env
+#   then edit .env — at minimum set GENX_DIR
 ```
 
-Either way you end up with a virtual environment at `.venv/` containing `mcp`, `pandas`, and `matplotlib`. Nothing else is needed — the server is started by the Claude client, not by you.
+### Configuration (`.env`)
+
+All personal/cluster-specific settings come from environment variables, loaded
+from `.env` at startup. **`.env` is gitignored — never commit it.** `.env.example`
+is the public template; copy it and fill in your own values.
+
+| Variable | Required | Default | Notes |
+|---|---|---|---|
+| `GENX_DIR` | **yes** | — | Absolute path to your GenX.jl checkout. Server won't start if unset. |
+| `SLURM_PARTITION` | no | `all` | Partition to submit to. |
+| `SLURM_CPUS_DEFAULT` | no | `4` | CPUs per task when the caller doesn't specify. |
+| `SLURM_MAIL_USER` | no | _(none)_ | Email for job notifications. Blank → no mail directives. |
+| `GENX_LOG_DIR` | no | `<GENX_DIR>/run_logs` | Where `.out`/`.err` logs go. |
+| `JULIA_MODULE` | no | _(none)_ | e.g. `julia/1.10.5`. Blank → no `module load`. |
+| `GUROBI_MODULE` | no | _(none)_ | e.g. `gurobi/9.0.1`. Blank → no `module load`. |
+| `JULIA_CPU_TARGET` | no | _(none)_ | Optional multi-arch build target. |
+
+Run `module avail` on your cluster to find the correct module names.
 
 ## Hooking it up to Claude
 
-> **Important:** use **absolute paths** for both the Python interpreter and `server.py`.
-
-### Claude Desktop
-
-Edit `claude_desktop_config.json`:
-
-- macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
-- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
-
-```json
-{
-  "mcpServers": {
-    "capacity-plot-agent": {
-      "command": "/ABSOLUTE/PATH/TO/thesis/.venv/bin/python",
-      "args": ["/ABSOLUTE/PATH/TO/thesis/mcp_agent/server.py"]
-    }
-  }
-}
-```
-
-Replace `/ABSOLUTE/PATH/TO/thesis` with where you cloned this repo, then fully restart Claude Desktop. The tools appear under the 🔨 tools icon.
+> Use **absolute paths** for both the Python interpreter and `server.py`.
 
 ### Claude Code
 
-Create a `.mcp.json` in the directory where you run `claude` (or add to an existing one):
+Register the server (run on the cluster, from any directory):
+
+```bash
+claude mcp add genx-tested-agent -- /ABSOLUTE/PATH/TO/.venv/bin/python /ABSOLUTE/PATH/TO/genx-tested-agent/server.py
+```
+
+Or copy `.mcp.json.example` to `.mcp.json` and edit the paths:
 
 ```json
 {
   "mcpServers": {
-    "capacity-plot-agent": {
-      "command": "/ABSOLUTE/PATH/TO/thesis/.venv/bin/python",
-      "args": ["/ABSOLUTE/PATH/TO/thesis/mcp_agent/server.py"]
+    "genx-tested-agent": {
+      "command": "/ABSOLUTE/PATH/TO/.venv/bin/python",
+      "args": ["/ABSOLUTE/PATH/TO/genx-tested-agent/server.py"]
     }
   }
 }
 ```
 
-Then run `/mcp` inside Claude Code to verify it connected. Re-run `/mcp` and reconnect whenever you edit the server code.
+Then run `/mcp` inside Claude Code to verify it connected. Reconnect whenever you
+edit the server code.
+
+### Claude Desktop
+
+Edit `claude_desktop_config.json` (macOS:
+`~/Library/Application Support/Claude/claude_desktop_config.json`, Windows:
+`%APPDATA%\Claude\claude_desktop_config.json`) with the same `mcpServers` block,
+then fully restart Claude Desktop. Tools appear under the 🔨 icon.
 
 ## Usage
 
-Just ask Claude in plain language, pointing it at any GenX results file:
+Ask Claude in plain language:
 
-> plot the capacity for `/path/to/results/capacity.csv`, save the plots to `/path/to/output_dir`
+- *"Preview the SLURM script for `scenarios/PJM_Baseline_Example` at 12h, 3 cores, 128GB"* → dry run
+- *"Submit that case"* → `sbatch`, returns job ID
+- *"Summarize the capacity in `.../results/capacity.csv` for zones 10 and 23"*
+- *"Plot NewCap for the baseline scenario, period 1, into `./plots`"*
 
-Claude will ask for the plot type(s), optional zone list, scenario name, and period, then save `{PlotType}.png` files to your output directory. Note that plots are named by plot type only — plotting a different scenario or zone set into the same directory overwrites earlier PNGs.
+Walltime and memory are **required** for submission — the tools ask for them if
+you don't provide them rather than guessing. Plots are named by plot type only
+(`{PlotType}.png`), so plotting a different scenario into the same directory
+overwrites earlier PNGs.
 
 ## Repo layout
 
 ```
-mcp_agent/
-  server.py          # MCP server: tool definitions (FastMCP)
-  plot_capacity.py   # loading, zone filtering, aggregation, plotting
-  run_server.sh      # run server with the MCP dev inspector (debugging)
-mcp/                 # cluster/Slurm MCP tooling
-plot_library/        # example plots generated by capacity-plot-agent
-utils.py             # analysis utilities
-write_demand_response.jl
+server.py          # MCP server: tool definitions (FastMCP)
+slurm.py           # case resolution + SLURM script build/submit
+plot_capacity.py   # loading, zone filtering, aggregation, plotting
+run_server.sh      # run server with the MCP dev inspector (debugging)
+.env.example       # config template — copy to .env and fill in
+requirements.txt   # Python dependencies
 ```

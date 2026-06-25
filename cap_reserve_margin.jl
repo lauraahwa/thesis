@@ -101,8 +101,6 @@ function cap_reserve_margin!(EP::Model, inputs::Dict, setup::Dict)
             DC_THERM_CLEAN = [y for y in DC_THERM if is_nuclear(y)]
             DC_GAS = [y for y in DC_THERM if !is_nuclear(y)]
 
-            # CLEAN bucket (90% floor): procured VRE + nuclear.
-            # ONSITE bucket (10% cap): on-island gas + BTM battery.
             zones_dc = findall(x -> x != 0, inputs["dfCapRes"][:, dc_res])
 
             @expression(EP, eDCCleanCapRes[t = 1:T], AffExpr(0.0))
